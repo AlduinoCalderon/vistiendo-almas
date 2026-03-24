@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 
-export default function Checkout({ cart, cajeroId, onCheckoutComplete }) {
+export default function Checkout({ cart, cajeroId, sesionId, onCheckoutComplete }) {
   const [metodoPago, setMetodoPago] = useState('efectivo');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -14,7 +14,6 @@ export default function Checkout({ cart, cajeroId, onCheckoutComplete }) {
     setLoading(true);
     setError(null);
 
-    // Formatear items para el RPC
     const itemsData = cart.map(item => ({
       variante_id: item.variante_id,
       cantidad: item.cantidad,
@@ -23,6 +22,7 @@ export default function Checkout({ cart, cajeroId, onCheckoutComplete }) {
 
     try {
       const { data, error: rpcError } = await supabase.rpc('procesar_venta', {
+        p_sesion_id: sesionId,
         p_cajero_id: cajeroId,
         p_metodo_pago: metodoPago,
         p_items: itemsData
@@ -30,48 +30,58 @@ export default function Checkout({ cart, cajeroId, onCheckoutComplete }) {
 
       if (rpcError) throw rpcError;
 
-      // Éxito limpiamos y avisamos al padre
-      alert('Venta Procesada Exitosamente. Ticket ID: ' + data);
+      alert('Venta Procesada Exitosamente! Ticket: ' + data.substring(0,8));
       onCheckoutComplete();
       
     } catch (err) {
-      console.error("Error procesando venta:", err);
-      setError(err.message || 'Ocurrió un error al procesar la venta');
+      setError(err.message || 'Ocurrió un error en la base de datos al procesar la venta');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="card">
-      <div className="flex-between">
-        <div>
-          <label style={{ marginRight: '1rem', fontWeight: 'bold' }}>Método de Pago:</label>
-          <select 
-            value={metodoPago} 
-            onChange={(e) => setMetodoPago(e.target.value)}
-            style={{ padding: '0.5rem', borderRadius: '4px' }}
-          >
-            <option value="efectivo">Efectivo</option>
-            <option value="tarjeta">Tarjeta (Crédito/Débito)</option>
-            <option value="transferencia">Transferencia</option>
-          </select>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div className="total-section">
-            Total: ${total.toFixed(2)}
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mt-6">
+      <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-6">
+        <div className="w-full md:w-1/3">
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Método de Pago</label>
+          <div className="relative">
+            <select 
+              value={metodoPago} 
+              onChange={(e) => setMetodoPago(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none appearance-none font-medium text-gray-700"
+            >
+              <option value="efectivo">💵 Efectivo</option>
+              <option value="tarjeta">💳 Tarjeta (Crédito/Débito)</option>
+              <option value="transferencia">🏦 Transferencia</option>
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-500">
+              <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+            </div>
           </div>
+        </div>
+        <div className="text-right w-full md:w-auto">
+          <div className="text-sm text-gray-500 font-bold mb-1 tracking-widest">TOTAL A PAGAR</div>
+          <div className="text-5xl font-black text-blue-900">${total.toFixed(2)}</div>
         </div>
       </div>
 
-      {error && <div className="error" style={{ marginTop: '1rem' }}>{error}</div>}
+      {error && <div className="mt-4 text-red-500 font-semibold bg-red-50 p-4 rounded-xl border border-red-100">{error}</div>}
       
       <button 
-        style={{ marginTop: '1.5rem', backgroundColor: '#10b981' }} 
         onClick={procesarCheckout}
         disabled={loading || cart.length === 0}
+        className="w-full mt-6 bg-emerald-500 hover:bg-emerald-600 text-white text-xl font-bold py-4 px-6 rounded-xl shadow-lg transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center"
       >
-        {loading ? 'Procesando Venta...' : 'Completar Venta'}
+        {loading ? (
+          <span className="flex items-center">
+             <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Procesando Trámite...
+          </span>
+        ) : 'Completar y Cobrar'}
       </button>
     </div>
   );
