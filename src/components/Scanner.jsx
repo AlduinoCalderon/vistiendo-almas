@@ -1,162 +1,167 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { Search } from 'lucide-react';
 
 export default function Scanner({ onProductScanned }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
   const [error, setError] = useState(null);
-  const [searchResults, setSearchResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const debounceRef = useRef(null);
 
+  // Close dropdown when clicking outside
   useEffect(() => {
-    if (inputRef.current) inputRef.current.focus();
-    
-    const handleClick = () => {
-      // Si hay resultados mostrándose, no forzamos el focus para permitir el clic libre
-      if (inputRef.current && searchResults.length === 0) {
-        inputRef.current.focus();
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+          inputRef.current && !inputRef.current.contains(e.target)) {
+        setShowDropdown(false);
       }
     };
-    
-    window.addEventListener('click', handleClick);
-    return () => window.removeEventListener('click', handleClick);
-  }, [searchResults.length]);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!searchTerm.trim()) return;
-    
+  const doSearch = useCallback(async (term) => {
+    if (!term.trim() || term.length < 2) { setSuggestions([]); setShowDropdown(false); return; }
+    setSearching(true);
     setError(null);
-    setSearchResults([]);
-    setIsSearching(true);
-    const term = searchTerm.trim();
 
     try {
-      // 1. Intentar buscar exactamente por código de barras primero
-      // Se usa maybeSingle para evitar el error 406 Not Acceptable si no existe
-      const { data: barcodeData, error: barcodeError } = await supabase
+      // Primero intenta exacto por codigo de barras
+      const { data: barcodeHit } = await supabase
         .from('variantes')
-        .select(`
-          id, precio, talla, color, stock, codigo_barras,
-          productos!inner ( nombre, categoria )
-        `)
-        .eq('codigo_barras', term)
+        .select('id, precio, talla, color, stock, codigo_barras, productos!inner(nombre, categoria)')
+        .eq('codigo_barras', term.trim())
         .maybeSingle();
 
-      if (barcodeError) throw barcodeError;
-
-      if (barcodeData) {
-        // Encontrado por código exacto!
-        addScannedProduct(barcodeData);
+      if (barcodeHit) {
+        addProduct(barcodeHit);
+        setSearchTerm('');
+        setSuggestions([]);
+        setShowDropdown(false);
         return;
       }
 
-      // 2. Si no es un código de barras válido, buscamos por coincidencias parciales en el nombre del producto
-      const { data: nameData, error: nameError } = await supabase
+      // Busqueda parcial por nombre
+      const { data, error: err } = await supabase
         .from('variantes')
-        .select(`
-          id, precio, talla, color, stock, codigo_barras,
-          productos!inner ( nombre, categoria )
-        `)
-        .ilike('productos.nombre', `%${term}%`);
+        .select('id, precio, talla, color, stock, codigo_barras, productos!inner(nombre, categoria)')
+        .ilike('productos.nombre', `%${term}%`)
+        .order('productos(nombre)', { ascending: true })
+        .limit(30);
 
-      if (nameError) throw nameError;
-
-      if (!nameData || nameData.length === 0) {
-        setError('No se encontró ningún producto con ese código de barras o nombre.');
-      } else if (nameData.length === 1) {
-        // Si solo arrojó una variante, la agregamos directo
-        addScannedProduct(nameData[0]);
-      } else {
-        // Múltiples variantes encontradas, mostramos selector
-        setSearchResults(nameData);
-      }
-    } catch (err) {
-      console.error(err);
-      setError('Error de conexión al buscar el producto.');
+      if (err) throw err;
+      setSuggestions(data || []);
+      setShowDropdown((data || []).length > 0);
+    } catch (e) {
+      setError('Error al buscar.');
     } finally {
-      setIsSearching(false);
+      setSearching(false);
+    }
+  }, []);
+
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setSearchTerm(val);
+    setError(null);
+    clearTimeout(debounceRef.current);
+    if (val.length >= 2) {
+      debounceRef.current = setTimeout(() => doSearch(val), 300);
+    } else {
+      setSuggestions([]);
+      setShowDropdown(false);
     }
   };
 
-  const addScannedProduct = (data) => {
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(debounceRef.current);
+      doSearch(searchTerm);
+    }
+    if (e.key === 'Escape') { setShowDropdown(false); }
+  };
+
+  const addProduct = (variante) => {
     onProductScanned({
-      variante_id: data.id,
-      nombre: data.productos.nombre,
-      talla: data.talla,
-      color: data.color,
-      precio: data.precio,
+      variante_id: variante.id,
+      nombre: variante.productos.nombre,
+      talla: variante.talla,
+      color: variante.color,
+      precio: variante.precio,
     });
     setSearchTerm('');
-    setSearchResults([]);
+    setSuggestions([]);
+    setShowDropdown(false);
     setError(null);
     if (inputRef.current) inputRef.current.focus();
   };
 
+  const selectSuggestion = (variante) => {
+    if (variante.stock <= 0) {
+      setError(`Sin stock: ${variante.productos.nombre} (${variante.talla} / ${variante.color})`);
+      return;
+    }
+    addProduct(variante);
+  };
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-      <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4 items-center relative">
-        <div className="flex-1 w-full relative">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-          <input
-            ref={inputRef}
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Escanee código de barras o escriba el nombre del producto..."
-            autoFocus
-            className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 text-lg rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-200"
-          />
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-4">
+      <div className="relative w-full">
+        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+          {searching
+            ? <svg className="animate-spin h-6 w-6 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            : <Search className="h-6 w-6 text-gray-400" />
+          }
         </div>
-        <button type="submit" disabled={isSearching} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-xl transition duration-200 whitespace-nowrap shadow-md disabled:bg-blue-300">
-          {isSearching ? 'Buscando...' : 'Buscar / Agregar'}
-        </button>
-      </form>
+        <input
+          ref={inputRef}
+          type="text"
+          value={searchTerm}
+          onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
+          placeholder="Escanea código de barras o escribe para buscar... (ej: Pant)"
+          autoFocus
+          className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 text-lg rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+        />
+
+        {/* Dropdown de sugerencias */}
+        {showDropdown && suggestions.length > 0 && (
+          <div ref={dropdownRef} className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 max-h-80 overflow-y-auto">
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-wider">
+              {suggestions.length} resultados — click para agregar al carrito
+            </div>
+            {suggestions.map(v => (
+              <button key={v.id} onClick={() => selectSuggestion(v)}
+                className="w-full px-4 py-3 hover:bg-blue-50 text-left transition-colors flex justify-between items-center border-b border-gray-50 last:border-0"
+                disabled={v.stock <= 0}>
+                <div>
+                  <p className={`font-bold ${v.stock <= 0 ? 'text-gray-400' : 'text-gray-900'}`}>{v.productos.nombre}</p>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    <span className="bg-gray-100 px-1.5 rounded text-xs mr-1">{v.talla}</span>
+                    <span className="border border-gray-200 px-1.5 rounded text-xs mr-2">{v.color}</span>
+                    {v.codigo_barras && <span className="font-mono text-xs text-gray-400">· {v.codigo_barras}</span>}
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0 ml-4">
+                  <p className="font-bold text-blue-700">${v.precio.toFixed(2)}</p>
+                  <p className={`text-xs font-bold ${v.stock <= 0 ? 'text-red-500' : v.stock <= 5 ? 'text-amber-500' : 'text-emerald-600'}`}>
+                    {v.stock <= 0 ? 'Sin stock' : `Stock: ${v.stock}`}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {error && (
-        <div className="mt-4 text-red-500 text-sm font-medium bg-red-50 p-3 rounded-lg flex items-center">
-          <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>
-          {error}
-        </div>
-      )}
-
-      {/* Resultados de Búsqueda por Nombre (Múltiples Variantes) */}
-      {searchResults.length > 0 && (
-        <div className="mt-6 border border-gray-200 rounded-xl overflow-hidden shadow-md bg-white">
-          <div className="bg-blue-50 px-4 py-3 border-b border-blue-100 flex justify-between items-center text-sm font-bold text-blue-900">
-            <span>Resultados para "{searchTerm}": Seleccione la variante correcta</span>
-            <button onClick={() => setSearchResults([])} className="text-blue-500 hover:text-blue-800">Cerrar</button>
-          </div>
-          <ul className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
-            {searchResults.map((variante) => (
-              <li 
-                key={variante.id} 
-                onClick={() => addScannedProduct(variante)}
-                className="p-4 hover:bg-gray-50 cursor-pointer flex justify-between items-center transition-colors group"
-              >
-                <div>
-                  <p className="font-bold text-gray-900 text-lg group-hover:text-blue-600 transition-colors">
-                    {variante.productos.nombre}
-                  </p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    <span className="inline-block bg-gray-100 px-2 py-0.5 rounded text-gray-700 font-medium mr-2">Talla: {variante.talla}</span> 
-                    <span className="inline-block border border-gray-200 px-2 py-0.5 rounded text-gray-600 mr-2">Color: {variante.color}</span>
-                    <span className="font-mono text-xs text-gray-400">Cód: {variante.codigo_barras || 'N/A'}</span>
-                  </p>
-                </div>
-                <div className="text-right flex flex-col items-end">
-                   <p className="font-bold text-gray-900 text-xl">${variante.precio.toFixed(2)}</p>
-                   <p className={`text-xs font-bold mt-1 px-2 py-0.5 rounded ${variante.stock > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                     Stock: {variante.stock}
-                   </p>
-                </div>
-              </li>
-            ))}
-          </ul>
+        <div className="mt-3 text-red-500 text-sm font-medium bg-red-50 p-3 rounded-lg">
+          ⚠️ {error}
         </div>
       )}
     </div>
