@@ -20,7 +20,14 @@ export default function Login({ onLoginData }) {
     if (error) {
       setError("Credenciales inválidas o error de conexión.");
     } else {
-      onLoginData(data.user);
+      // Cargar el perfil del usuario para obtener su rol
+      const { data: perfil } = await supabase
+        .from('perfiles')
+        .select('rol, nombre')
+        .eq('id', data.user.id)
+        .single();
+      // Combinar usuario con su rol
+      onLoginData({ ...data.user, rol: perfil?.rol ?? 'cajero', nombre: perfil?.nombre ?? data.user.email });
     }
     setLoading(false);
   };
