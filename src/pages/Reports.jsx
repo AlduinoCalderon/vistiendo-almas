@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { BarChart3, TrendingUp, CalendarDays, DollarSign } from 'lucide-react';
+import useAuthStore from '../store/authStore';
 
-export default function Reports({ user }) {
+export default function Reports() {
+  const { user, perfil } = useAuthStore();
   const [ventas, setVentas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState('semana');
 
-  const esAdmin = user?.rol === 'admin';
+  const esAdmin = perfil?.rol === 'admin';
 
   useEffect(() => {
     fetchVentas();

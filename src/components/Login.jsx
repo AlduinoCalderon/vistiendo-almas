@@ -1,34 +1,44 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import useAuthStore from '../store/authStore';
 
-export default function Login({ onLoginData }) {
+export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { _loadPerfil } = useAuthStore();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (error) {
-      setError("Credenciales inválidas o error de conexión.");
-    } else {
-      // Cargar el perfil del usuario para obtener su rol
-      const { data: perfil } = await supabase
-        .from('perfiles')
-        .select('rol, nombre')
-        .eq('id', data.user.id)
-        .single();
-      // Combinar usuario con su rol
-      onLoginData({ ...data.user, rol: perfil?.rol ?? 'cajero', nombre: perfil?.nombre ?? data.user.email });
+    if (authError) {
+      setError('Credenciales inválidas o error de conexión.');
+      setLoading(false);
+      return;
     }
+
+    // Verificar estado activo del perfil
+    const { data: perfil } = await supabase
+      .from('perfiles')
+      .select('activo, rol')
+      .eq('id', data.user.id)
+      .single();
+
+    if (!perfil || perfil.activo === false) {
+      // Destruir la sesión y mostrar mensaje
+      await supabase.auth.signOut();
+      setError('Tu cuenta aún no ha sido aprobada o está inactiva. Contacta al administrador.');
+      setLoading(false);
+      return;
+    }
+
+    // Sesión válida → el onAuthStateChange del authStore cargará el perfil automáticamente
     setLoading(false);
   };
 
@@ -41,7 +51,7 @@ export default function Login({ onLoginData }) {
         </div>
         <form onSubmit={handleLogin} className="space-y-6">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Email del Cajero</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Correo electrónico</label>
             <input
               type="email"
               value={email}
@@ -61,11 +71,33 @@ export default function Login({ onLoginData }) {
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-200"
             />
           </div>
-          {error && <div className="text-red-500 text-sm font-medium text-center bg-red-50 p-3 rounded-lg">{error}</div>}
-          <button type="submit" disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-lg focus:ring-4 focus:ring-blue-200 text-white font-bold py-3.5 px-4 rounded-xl transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-4">
-            {loading ? 'Ingresando...' : 'Iniciar Sesión'}
+
+          <div className="text-right -mt-2">
+            <Link to="/forgot-password" className="text-sm text-blue-600 hover:underline font-medium">
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </div>
+
+          {error && (
+            <div className="text-red-600 text-sm font-medium text-center bg-red-50 p-3 rounded-lg border border-red-100">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-lg focus:ring-4 focus:ring-blue-200 text-white font-bold py-3.5 px-4 rounded-xl transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Verificando...' : 'Iniciar Sesión'}
           </button>
+
+          <p className="text-center text-sm text-gray-500">
+            ¿No tienes cuenta?{' '}
+            <Link to="/signup" className="text-blue-600 font-semibold hover:underline">
+              Regístrate aquí
+            </Link>
+          </p>
         </form>
       </div>
     </div>
