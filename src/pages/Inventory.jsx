@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, Trash2, Save, X, ChevronDown, Package } from 'lucide-react';
+import { Plus, Save, X, ChevronDown, Package, EyeOff, Eye, RotateCcw } from 'lucide-react';
 
 const REGIONES = ['Centro', 'Norte', 'Sur', 'Costa', 'Sierra', 'Internacional', 'General'];
 
@@ -266,25 +266,41 @@ export default function Inventory() {
   const [showNuevoModal, setShowNuevoModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [searchProd, setSearchProd] = useState('');
+  const [mostrarInactivos, setMostrarInactivos] = useState(false);
 
   useEffect(() => { fetchProductos(); }, []);
 
   const fetchProductos = async () => {
     setLoading(true);
-    const { data } = await supabase.from('productos').select('*, variantes(count)').order('nombre');
+    // Cargamos TODOS (activos e inactivos) para que el admin pueda reactivarlos
+    const { data } = await supabase
+      .from('productos')
+      .select('*, variantes(count)')
+      .order('nombre');
     if (data) setProductos(data);
     setLoading(false);
   };
 
-  const eliminarProducto = async (id, e) => {
+  const darDeBajaProducto = async (id, e) => {
     e.stopPropagation();
-    if (!confirm('¿Eliminar este producto y TODAS sus variantes?')) return;
-    await supabase.from('productos').delete().eq('id', id);
+    if (!confirm('¿Dar de baja este producto? Se ocultará del catálogo y del POS, pero no se eliminará permanentemente.')) return;
+    await supabase.from('productos').update({ activo: false }).eq('id', id);
     if (selectedProduct?.id === id) setSelectedProduct(null);
     fetchProductos();
   };
 
-  const filtrados = productos.filter(p => p.nombre.toLowerCase().includes(searchProd.toLowerCase()) || p.categoria?.toLowerCase().includes(searchProd.toLowerCase()));
+  const reactivarProducto = async (id, e) => {
+    e.stopPropagation();
+    await supabase.from('productos').update({ activo: true }).eq('id', id);
+    fetchProductos();
+  };
+
+  const filtrados = productos.filter(p => {
+    const textoOk = p.nombre.toLowerCase().includes(searchProd.toLowerCase()) ||
+      p.categoria?.toLowerCase().includes(searchProd.toLowerCase());
+    const activoOk = mostrarInactivos ? true : p.activo !== false;
+    return textoOk && activoOk;
+  });
 
   return (
     <div className="space-y-6">
@@ -293,9 +309,22 @@ export default function Inventory() {
 
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3"><Package className="text-blue-600" /> Catálogo de Productos</h2>
-        <button onClick={() => setShowNuevoModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm transition-colors">
-          <Plus size={20} /> Nuevo Producto
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setMostrarInactivos(v => !v)}
+            className={`flex items-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl border transition-colors ${
+              mostrarInactivos
+                ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {mostrarInactivos ? <Eye size={16} /> : <EyeOff size={16} />}
+            {mostrarInactivos ? 'Ocultar inactivos' : 'Ver inactivos'}
+          </button>
+          <button onClick={() => setShowNuevoModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-5 rounded-xl flex items-center gap-2 shadow-sm transition-colors">
+            <Plus size={20} /> Nuevo Producto
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -308,6 +337,7 @@ export default function Inventory() {
             <tr>
               <th className="px-6 py-4">Nombre</th>
               <th className="px-6 py-4">Región</th>
+              <th className="px-6 py-4 text-center">Estado</th>
               <th className="px-6 py-4 text-center">SKUs / Variantes</th>
               <th className="px-6 py-4 text-center">Acciones</th>
             </tr>
@@ -318,20 +348,36 @@ export default function Inventory() {
             ) : filtrados.length === 0 ? (
               <tr><td colSpan="4" className="p-8 text-center text-gray-400">No hay productos. Agrega el primero.</td></tr>
             ) : filtrados.map(p => (
-              <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+              <tr key={p.id} className={`hover:bg-gray-50 transition-colors ${p.activo === false ? 'opacity-50' : ''}`}>
                 <td className="px-6 py-4 font-bold text-gray-900">{p.nombre}</td>
                 <td className="px-6 py-4">
                   <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-bold">{p.categoria || '—'}</span>
                 </td>
+                <td className="px-6 py-4 text-center">
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                    p.activo !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${p.activo !== false ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                    {p.activo !== false ? 'Activo' : 'Inactivo'}
+                  </span>
+                </td>
                 <td className="px-6 py-4 text-center font-bold text-gray-700">{p.variantes?.[0]?.count ?? 0} SKUs</td>
                 <td className="px-6 py-4 text-center">
                   <div className="flex items-center justify-center gap-2">
-                    <button onClick={() => setSelectedProduct(p)} className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold px-3 py-1.5 rounded-lg text-sm transition-colors">
-                      Gestionar SKUs
-                    </button>
-                    <button onClick={e => eliminarProducto(p.id, e)} className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors">
-                      <Trash2 size={18} />
-                    </button>
+                    {p.activo !== false && (
+                      <button onClick={() => setSelectedProduct(p)} className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold px-3 py-1.5 rounded-lg text-sm transition-colors">
+                        Gestionar SKUs
+                      </button>
+                    )}
+                    {p.activo !== false ? (
+                      <button onClick={e => darDeBajaProducto(p.id, e)} title="Dar de baja (Soft Delete)" className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors">
+                        <EyeOff size={18} />
+                      </button>
+                    ) : (
+                      <button onClick={e => reactivarProducto(p.id, e)} title="Reactivar producto" className="text-gray-400 hover:text-emerald-600 p-1.5 rounded-lg hover:bg-emerald-50 transition-colors">
+                        <RotateCcw size={18} />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
