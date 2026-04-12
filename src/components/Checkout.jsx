@@ -1,23 +1,27 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import useCartStore from '../store/cartStore';
+import { CheckCircle, XCircle, X } from 'lucide-react';
 
-export default function Checkout({ cart, cajeroId, sesionId, onCheckoutComplete }) {
+export default function Checkout({ cart, cajeroId, sesionId }) {
+  const { clearCart } = useCartStore();
   const [metodoPago, setMetodoPago] = useState('efectivo');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [ticketExito, setTicketExito] = useState(null); // UUID de venta exitosa
 
   const total = cart.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
 
   const procesarCheckout = async () => {
     if (cart.length === 0) return;
-    
     setLoading(true);
     setError(null);
+    setTicketExito(null);
 
     const itemsData = cart.map(item => ({
       variante_id: item.variante_id,
       cantidad: item.cantidad,
-      precio_unitario: item.precio
+      precio_unitario: item.precio,
     }));
 
     try {
@@ -25,16 +29,18 @@ export default function Checkout({ cart, cajeroId, sesionId, onCheckoutComplete 
         p_sesion_id: sesionId,
         p_cajero_id: cajeroId,
         p_metodo_pago: metodoPago,
-        p_items: itemsData
+        p_items: itemsData,
       });
 
       if (rpcError) throw rpcError;
 
-      alert('Venta Procesada Exitosamente! Ticket: ' + data.substring(0,8));
-      onCheckoutComplete();
-      
+      // ✅ Solo limpiar carrito si la venta fue exitosa (Commit confirmado)
+      clearCart();
+      setTicketExito(data); // Mostrar banner de éxito con el UUID
+
     } catch (err) {
-      setError(err.message || 'Ocurrió un error en la base de datos al procesar la venta');
+      // ❌ Error → carrito se mantiene intacto para reintentar
+      setError(err.message || 'Error al procesar la venta. El carrito se conserva para reintentar.');
     } finally {
       setLoading(false);
     }
@@ -42,12 +48,36 @@ export default function Checkout({ cart, cajeroId, sesionId, onCheckoutComplete 
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mt-6">
+
+      {/* Banner de ÉXITO — reemplaza el alert() nativo */}
+      {ticketExito && (
+        <div className="mb-6 bg-emerald-50 border border-emerald-200 rounded-2xl p-5 flex items-start gap-4 animate-fade-in">
+          <CheckCircle className="text-emerald-500 flex-shrink-0 mt-0.5" size={28} />
+          <div className="flex-1">
+            <p className="font-bold text-emerald-800 text-lg">¡Venta registrada con éxito!</p>
+            <p className="text-emerald-700 text-sm mt-1">
+              Ticket #<span className="font-mono font-bold">{ticketExito.substring(0, 8).toUpperCase()}</span>
+            </p>
+            <p className="text-emerald-600 text-xs mt-2 font-medium">
+              El carrito fue vaciado. Puede cobrar el siguiente cliente.
+            </p>
+          </div>
+          <button
+            onClick={() => setTicketExito(null)}
+            className="text-emerald-400 hover:text-emerald-600 transition-colors"
+            title="Cerrar"
+          >
+            <X size={20} />
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-6">
         <div className="w-full md:w-1/3">
           <label className="block text-sm font-semibold text-gray-700 mb-2">Método de Pago</label>
           <div className="relative">
-            <select 
-              value={metodoPago} 
+            <select
+              value={metodoPago}
               onChange={(e) => setMetodoPago(e.target.value)}
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none appearance-none font-medium text-gray-700"
             >
@@ -56,7 +86,9 @@ export default function Checkout({ cart, cajeroId, sesionId, onCheckoutComplete 
               <option value="transferencia">🏦 Transferencia</option>
             </select>
             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-500">
-              <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+              <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+              </svg>
             </div>
           </div>
         </div>
@@ -66,20 +98,29 @@ export default function Checkout({ cart, cajeroId, sesionId, onCheckoutComplete 
         </div>
       </div>
 
-      {error && <div className="mt-4 text-red-500 font-semibold bg-red-50 p-4 rounded-xl border border-red-100">{error}</div>}
-      
-      <button 
+      {error && (
+        <div className="mt-4 text-red-600 font-semibold bg-red-50 p-4 rounded-xl border border-red-100 text-sm flex items-start gap-3">
+          <XCircle className="flex-shrink-0 mt-0.5" size={18} />
+          <span>
+            <strong>Error en la transacción:</strong> {error}
+            <br />
+            <span className="font-normal text-red-500">El carrito se conserva. Verifica el stock e intenta de nuevo.</span>
+          </span>
+        </div>
+      )}
+
+      <button
         onClick={procesarCheckout}
         disabled={loading || cart.length === 0}
         className="w-full mt-6 bg-emerald-500 hover:bg-emerald-600 text-white text-xl font-bold py-4 px-6 rounded-xl shadow-lg transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center"
       >
         {loading ? (
-          <span className="flex items-center">
-             <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <span className="flex items-center gap-3">
+            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            Procesando Trámite...
+            Procesando venta...
           </span>
         ) : 'Completar y Cobrar'}
       </button>

@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { BarChart3, TrendingUp, CalendarDays, DollarSign } from 'lucide-react';
+import useAuthStore from '../store/authStore';
 
-export default function Reports({ user }) {
+export default function Reports() {
+  const { user, perfil } = useAuthStore();
   const [ventas, setVentas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState('semana');
 
-  const esAdmin = user?.rol === 'admin';
+  const esAdmin = perfil?.rol === 'admin';
 
   useEffect(() => {
     fetchVentas();
@@ -17,19 +19,22 @@ export default function Reports({ user }) {
     setLoading(true);
     let dateLimit = new Date();
 
-    if (filtro === 'hoy') {
-      dateLimit.setHours(0, 0, 0, 0);
-    } else if (filtro === 'semana') {
-      dateLimit.setDate(dateLimit.getDate() - 7);
-    } else if (filtro === 'mes') {
-      dateLimit.setMonth(dateLimit.getMonth() - 1);
-    }
-
+    // 'todos' = sin límite de fecha (histórico completo)
     let query = supabase
       .from('ventas')
       .select('id, total, created_at, metodo_pago, cajero_id, sesion_id')
-      .gte('created_at', dateLimit.toISOString())
       .order('created_at', { ascending: false });
+
+    if (filtro !== 'todos') {
+      if (filtro === 'hoy') {
+        dateLimit.setHours(0, 0, 0, 0);
+      } else if (filtro === 'semana') {
+        dateLimit.setDate(dateLimit.getDate() - 7);
+      } else if (filtro === 'mes') {
+        dateLimit.setMonth(dateLimit.getMonth() - 1);
+      }
+      query = query.gte('created_at', dateLimit.toISOString());
+    }
 
     // Si es cajero, solo ve las ventas de SU turno actual
     if (!esAdmin) {
@@ -77,6 +82,7 @@ export default function Reports({ user }) {
           <option value="hoy">Hoy</option>
           <option value="semana">Últimos 7 días</option>
           <option value="mes">Últimos 30 días</option>
+          <option value="todos">Todo el histórico</option>
         </select>
       </div>
 
@@ -115,7 +121,7 @@ export default function Reports({ user }) {
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mt-8">
             <h3 className="text-lg font-bold text-gray-800 mb-4">
-              Registro Histórico ({filtro === 'hoy' ? 'Hoy' : filtro === 'semana' ? 'Últimos 7 días' : 'Últimos 30 días'})
+              Registro Histórico ({filtro === 'hoy' ? 'Hoy' : filtro === 'semana' ? 'Últimos 7 días' : filtro === 'mes' ? 'Últimos 30 días' : 'Todos los tiempos'})
             </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
