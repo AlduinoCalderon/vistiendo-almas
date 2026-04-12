@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import useAuthStore from '../store/authStore';
 
@@ -18,27 +17,33 @@ export default function Login() {
     const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
 
     if (authError) {
-      setError('Credenciales inválidas o error de conexión.');
+      setError('Credenciales incorrectas. Verifica tu correo y contraseña.');
       setLoading(false);
       return;
     }
 
-    // Verificar estado activo del perfil
-    const { data: perfil } = await supabase
+    // Verificar perfil activo
+    const { data: perfil, error: perfilError } = await supabase
       .from('perfiles')
       .select('activo, rol')
       .eq('id', data.user.id)
       .single();
 
-    if (!perfil || perfil.activo === false) {
-      // Destruir la sesión y mostrar mensaje
+    if (perfilError) {
+      // Error real de BD — no asumir inactivo
       await supabase.auth.signOut();
-      setError('Tu cuenta aún no ha sido aprobada o está inactiva. Contacta al administrador.');
+      setError(`Error al leer el perfil: ${perfilError.message}. Contacta al administrador.`);
       setLoading(false);
       return;
     }
 
-    // Sesión válida → el onAuthStateChange del authStore cargará el perfil automáticamente
+    if (!perfil || perfil.activo === false) {
+      await supabase.auth.signOut();
+      setError('Cuenta inactiva. Solicita activación al administrador del sistema.');
+      setLoading(false);
+      return;
+    }
+
     setLoading(false);
   };
 
@@ -58,7 +63,7 @@ export default function Login() {
               onChange={(e) => setEmail(e.target.value)}
               required
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-200"
-              placeholder="cajero@vistiendoalmas.com"
+              placeholder="correo@vistiendoalmas.com"
             />
           </div>
           <div>
@@ -70,12 +75,6 @@ export default function Login() {
               required
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-200"
             />
-          </div>
-
-          <div className="text-right -mt-2">
-            <Link to="/forgot-password" className="text-sm text-blue-600 hover:underline font-medium">
-              ¿Olvidaste tu contraseña?
-            </Link>
           </div>
 
           {error && (
@@ -92,11 +91,8 @@ export default function Login() {
             {loading ? 'Verificando...' : 'Iniciar Sesión'}
           </button>
 
-          <p className="text-center text-sm text-gray-500">
-            ¿No tienes cuenta?{' '}
-            <Link to="/signup" className="text-blue-600 font-semibold hover:underline">
-              Regístrate aquí
-            </Link>
+          <p className="text-center text-xs text-gray-400 pt-2">
+            Para acceso o recuperación de cuenta, contacta al administrador del sistema.
           </p>
         </form>
       </div>

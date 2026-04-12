@@ -8,9 +8,8 @@ import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 
 // Páginas de Auth (públicas)
-import SignUp from './pages/SignUp';
-import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+
 
 // Páginas del app (protegidas)
 import POS from './pages/POS';
@@ -39,9 +38,8 @@ export default function App() {
       <Routes>
         {/* Rutas públicas */}
         <Route path="/" element={user && perfil?.activo ? <Navigate to="/pos" replace /> : <Login />} />
-        <Route path="/signup" element={<SignUp />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+
 
         {/* Rutas protegidas (requieren sesión activa) */}
         <Route path="/" element={

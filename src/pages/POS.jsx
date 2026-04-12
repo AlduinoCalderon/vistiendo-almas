@@ -88,7 +88,9 @@ export default function POS() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
           <div>
-            <h2 className="text-lg font-bold text-gray-800">Carrito — Turno #{session.id.substring(0, 8)}</h2>
+            <h2 className="text-lg font-bold text-gray-800">
+              Caja abierta — {new Date(session.fecha_apertura).toLocaleDateString('es-MX', { day:'2-digit', month:'2-digit', year:'numeric' })} {new Date(session.fecha_apertura).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' })}
+            </h2>
             <p className="text-xs text-gray-400 mt-0.5">El carrito persiste aunque recargues la página 💾</p>
           </div>
           <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">

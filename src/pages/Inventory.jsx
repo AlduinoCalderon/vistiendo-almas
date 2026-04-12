@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Plus, Save, X, ChevronDown, Package, EyeOff, Eye, RotateCcw } from 'lucide-react';
 
-const REGIONES = ['Centro', 'Norte', 'Sur', 'Costa', 'Sierra', 'Internacional', 'General'];
+const REGIONES = [
+  'Cañada', 'Costa', 'Istmo', 'Mixteca',
+  'Papaloapan', 'Sierra Norte', 'Sierra Sur', 'Valles Centrales'
+];
 
 // Modal para agregar nuevo producto con todos los datos del SKU inicial obligatorio
 function NuevoProductoModal({ onClose, onSaved }) {
@@ -12,7 +15,8 @@ function NuevoProductoModal({ onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  const validProducto = producto.nombre.trim() && producto.categoria;
+  // categoria es opcional — solo requiere nombre
+  const validProducto = producto.nombre.trim().length > 0;
   const validSku = sku.talla.trim() && sku.color.trim() && sku.codigo_barras.trim() && Number(sku.precio) > 0 && Number(sku.stock) >= 0;
 
   const handleSave = async () => {
@@ -22,7 +26,7 @@ function NuevoProductoModal({ onClose, onSaved }) {
       // Insertar producto
       const { data: prod, error: prodErr } = await supabase
         .from('productos')
-        .insert([{ nombre: producto.nombre.trim(), categoria: producto.categoria }])
+        .insert([{ nombre: producto.nombre.trim(), categoria: producto.categoria || null }])
         .select().single();
       if (prodErr) throw prodErr;
 
@@ -75,11 +79,11 @@ function NuevoProductoModal({ onClose, onSaved }) {
                   placeholder="ej. Pantalón de Lino" className="w-full px-4 py-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 focus:bg-white" />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Región *</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Región Geoeconómica <span className="text-gray-400 font-normal">(opcional)</span></label>
                 <div className="relative">
                   <select value={producto.categoria} onChange={e => setProducto({ ...producto, categoria: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 appearance-none">
-                    <option value="">Selecciona la región de origen...</option>
+                    <option value="">Sin región asignada</option>
                     {REGIONES.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                   <ChevronDown className="absolute right-4 top-3.5 text-gray-400 pointer-events-none" size={20} />
