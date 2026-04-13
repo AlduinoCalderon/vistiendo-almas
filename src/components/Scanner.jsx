@@ -276,10 +276,7 @@ export default function Scanner({ onProductScanned, unknownBarcode, onUnknownBar
 
   // Lógica central para agregar producto al carrito
   const addProduct = (variante) => {
-    const enCarrito = items.find(i => i.variante_id === variante.id);
-    const cantidadActual = enCarrito?.cantidad ?? 0;
-
-    // Sin stock en BD → mostrar formulario de registro inline
+    // Sin stock en BD → mostrar formulario de registro inline (antes de agregar)
     if (variante.stock <= 0) {
       setSinStockItem(variante);
       setCantidadRegistrar('1');
@@ -287,11 +284,13 @@ export default function Scanner({ onProductScanned, unknownBarcode, onUnknownBar
       return;
     }
 
-    // Ya están todos en el carrito
+    // Sobre stock: agregar de todas formas con advertencia visual
+    const enCarrito = items.find(i => i.variante_id === variante.id);
+    const cantidadActual = enCarrito?.cantidad ?? 0;
     if (cantidadActual >= variante.stock) {
-      setError(`Ya tienes el máximo (${variante.stock} pza${variante.stock !== 1 ? 's' : ''}) en el carrito.`);
-      setShowDropdown(false);
-      return;
+      setError(`⚠ Atención: superando el stock registrado (${variante.stock} pzas). Se vendes bajo pedido.`);
+    } else {
+      setError(null);
     }
 
     onProductScanned({

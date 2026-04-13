@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import useAuthStore from '../store/authStore';
@@ -11,26 +11,9 @@ export default function Layout() {
   const { sesion } = useCajaStore();
   const [efectivoEnCaja, setEfectivoEnCaja] = useState(null);
 
-  useEffect(() => {
+  const fetchEfectivo = useCallback(async () => {
     if (!sesion) { setEfectivoEnCaja(null); return; }
 
-    fetchEfectivo();
-
-    // Re-calcular en tiempo real cuando se registra una venta nueva en esta sesión
-    const channel = supabase
-      .channel(`layout-efectivo-${sesion.id}`)
-      .on('postgres_changes', {
-        event:  'INSERT',
-        schema: 'public',
-        table:  'ventas',
-        filter: `sesion_id=eq.${sesion.id}`,
-      }, () => fetchEfectivo())
-      .subscribe();
-
-    return () => supabase.removeChannel(channel);
-  }, [sesion]);
-
-  const fetchEfectivo = async () => {
     const { data } = await supabase
       .from('ventas')
       .select('total')
@@ -39,7 +22,19 @@ export default function Layout() {
 
     const ventasEfectivo = (data || []).reduce((s, v) => s + parseFloat(v.total), 0);
     setEfectivoEnCaja(parseFloat(sesion.monto_inicial || 0) + ventasEfectivo);
-  };
+  }, [sesion]);
+
+  // Fetch inicial y cada vez que cambia la sesión
+  useEffect(() => {
+    if (!sesion) { setEfectivoEnCaja(null); return; }
+    fetchEfectivo();
+  }, [sesion, fetchEfectivo]);
+
+  // Actualizar cuando Checkout lanza el evento 'venta-registrada'
+  useEffect(() => {
+    window.addEventListener('venta-registrada', fetchEfectivo);
+    return () => window.removeEventListener('venta-registrada', fetchEfectivo);
+  }, [fetchEfectivo]);
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">

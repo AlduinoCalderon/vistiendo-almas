@@ -73,6 +73,9 @@ export default function Checkout({ cart, cajeroId, sesionId }) {
         cambio: metodoPago === 'efectivo' ? cambio : null,
       });
 
+      // Notificar a Layout para que actualice el contador de dinero en caja
+      window.dispatchEvent(new CustomEvent('venta-registrada'));
+
       // Auto-dismiss toast y enfoque al scanner
       setTimeout(() => {
         setTicketExito(null);
