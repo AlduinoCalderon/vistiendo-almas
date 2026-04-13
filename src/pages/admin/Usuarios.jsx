@@ -14,6 +14,11 @@ function NuevoCajeroModal({ onClose, onCreated }) {
     setError(null);
 
     try {
+      // Obtener el token JWT de la sesión actual (necesario para que el API gateway
+      // de Supabase acepte la petición a la Edge Function)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No hay sesión activa. Vuelve a iniciar sesión.');
+
       const { data, error: fnError } = await supabase.functions.invoke('crear-cajero', {
         body: {
           email:    form.email.trim(),
@@ -21,9 +26,16 @@ function NuevoCajeroModal({ onClose, onCreated }) {
           nombre:   form.nombre.trim(),
           rol:      form.rol,
         },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
       });
 
-      if (fnError) throw new Error(fnError.message);
+      if (fnError) {
+        // Intentar extraer el mensaje del body de error si lo hay
+        const msg = data?.error || fnError.message || 'Error en la función';
+        throw new Error(msg);
+      }
       if (data?.error) throw new Error(data.error);
 
       onCreated();

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import useCartStore from '../store/cartStore';
+import useCajaStore from '../store/cajaStore';
 import { CheckCircle, XCircle } from 'lucide-react';
 
 /**
@@ -14,15 +15,32 @@ function focusScanner() {
 
 export default function Checkout({ cart, cajeroId, sesionId }) {
   const { clearCart } = useCartStore();
-  const [metodoPago, setMetodoPago] = useState('efectivo');
-  const [pagoCliente, setPagoCliente] = useState('');   // cuánto entrega el cliente en efectivo
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const { sesion }    = useCajaStore();
+  const [metodoPago, setMetodoPago]   = useState('efectivo');
+  const [pagoCliente, setPagoCliente] = useState('');
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState(null);
   const [ticketExito, setTicketExito] = useState(null);
+  const [efectivoCaja, setEfectivoCaja] = useState(null); // efectivo disponible en caja
 
-  const total = cart.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
+  const total  = cart.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
   const cambio = parseFloat(pagoCliente) - total;
   const pagoValido = metodoPago !== 'efectivo' || parseFloat(pagoCliente) >= total;
+
+  // Re-calcular efectivo en caja cada vez que cambia el carrito (tras venta se vacía)
+  useEffect(() => {
+    if (!sesion) return;
+    const fetchEfectivo = async () => {
+      const { data } = await supabase
+        .from('ventas')
+        .select('total')
+        .eq('sesion_id', sesion.id)
+        .eq('metodo_pago', 'efectivo');
+      const ventasEf = (data || []).reduce((s, v) => s + parseFloat(v.total), 0);
+      setEfectivoCaja(parseFloat(sesion.monto_inicial || 0) + ventasEf);
+    };
+    fetchEfectivo();
+  }, [sesion, cart]); // cart cambia al limpiar tras venta
 
   const procesarCheckout = async () => {
     if (cart.length === 0) return;
@@ -146,7 +164,17 @@ export default function Checkout({ cart, cajeroId, sesionId }) {
                 {pagoCliente !== '' && (
                   <div className={`mt-3 text-center rounded-lg py-2 px-4 ${cambio >= 0 ? 'bg-emerald-100' : 'bg-red-100'}`}>
                     {cambio >= 0
-                      ? <p className="font-bold text-emerald-700 text-xl">Cambio: ${cambio.toFixed(2)}</p>
+                      ? (
+                        <>
+                          <p className="font-bold text-emerald-700 text-xl">Cambio: ${cambio.toFixed(2)}</p>
+                          {/* Advertencia si el cambio supera el efectivo disponible */}
+                          {efectivoCaja !== null && cambio > efectivoCaja && (
+                            <p className="text-amber-700 text-xs font-semibold mt-1">
+                              ⚠️ El cambio supera el efectivo en caja (${efectivoCaja.toFixed(2)})
+                            </p>
+                          )}
+                        </>
+                      )
                       : <p className="font-bold text-red-600 text-sm">Faltan ${Math.abs(cambio).toFixed(2)} para completar el pago</p>
                     }
                   </div>

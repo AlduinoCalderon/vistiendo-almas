@@ -13,7 +13,21 @@ export default function Layout() {
 
   useEffect(() => {
     if (!sesion) { setEfectivoEnCaja(null); return; }
+
     fetchEfectivo();
+
+    // Re-calcular en tiempo real cuando se registra una venta nueva en esta sesión
+    const channel = supabase
+      .channel(`layout-efectivo-${sesion.id}`)
+      .on('postgres_changes', {
+        event:  'INSERT',
+        schema: 'public',
+        table:  'ventas',
+        filter: `sesion_id=eq.${sesion.id}`,
+      }, () => fetchEfectivo())
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
   }, [sesion]);
 
   const fetchEfectivo = async () => {
