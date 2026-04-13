@@ -1,99 +1,248 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ShoppingCart, Package, BarChart3, LogOut, Shield, User } from 'lucide-react';
+import { ShoppingCart, Package, BarChart3, LogOut, Shield, User, Banknote, ArrowDownCircle } from 'lucide-react';
 import useAuthStore from '../store/authStore';
+import useCajaStore from '../store/cajaStore';
+import { supabase } from '../lib/supabase';
 
 export default function Sidebar() {
   const { perfil, signOut } = useAuthStore();
+  const { sesion, clearSesion } = useCajaStore();
+  const [showCorte, setShowCorte]   = useState(false);
+  const [montoDejar, setMontoDejar] = useState('');    // cuánto queda para el siguiente turno
+  const [cortando, setCortando]     = useState(false);
+  const [corteError, setCorteError] = useState(null);
+  const [efectivoCaja, setEfectivoCaja] = useState(null); // efectivo total en caja ahora
 
   const links = [
-    { to: "/pos", icon: <ShoppingCart size={22} />, label: "Caja POS" },
-    { to: "/inventory", icon: <Package size={22} />, label: "Inventario" },
-    { to: "/reports", icon: <BarChart3 size={22} />, label: "Reportes" },
+    { to: "/pos",       icon: <ShoppingCart size={22} />, label: "Caja POS"   },
+    { to: "/inventory", icon: <Package size={22} />,      label: "Inventario" },
+    { to: "/reports",   icon: <BarChart3 size={22} />,    label: "Reportes"   },
   ];
 
-  return (
-    <div className="w-64 bg-white border-r border-gray-200 flex flex-col h-full shadow-sm relative z-20">
-      {/* Logo */}
-      <div className="p-6 border-b border-gray-100 flex items-center space-x-3">
-        <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-inner">
-          <span className="text-white font-bold text-xl">V</span>
-        </div>
-        <div>
-          <h1 className="text-lg font-bold text-gray-900 leading-tight">Vistiendo Almas</h1>
-          <p className="text-xs text-gray-500 font-semibold uppercase tracking-widest">POS System</p>
-        </div>
-      </div>
+  // Calcular efectivo en caja cuando se abre el modal
+  useEffect(() => {
+    if (!showCorte || !sesion) return;
+    const fetchEfectivo = async () => {
+      const { data } = await supabase
+        .from('ventas')
+        .select('total')
+        .eq('sesion_id', sesion.id)
+        .eq('metodo_pago', 'efectivo');
+      const ventas = (data || []).reduce((s, v) => s + parseFloat(v.total), 0);
+      setEfectivoCaja(parseFloat(sesion.monto_inicial || 0) + ventas);
+    };
+    fetchEfectivo();
+  }, [showCorte, sesion]);
 
-      {/* User info */}
-      {perfil && (
-        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-              <User size={14} className="text-blue-600" />
+  const montoDejarNum = parseFloat(montoDejar) || 0;
+  // Retiro = todo el efectivo que hay - lo que se deja para el siguiente turno
+  const retiro = efectivoCaja !== null ? Math.max(0, efectivoCaja - montoDejarNum) : null;
+
+  const handleSalir = () => {
+    if (sesion) {
+      setMontoDejar('');
+      setCorteError(null);
+      setShowCorte(true);
+    } else {
+      signOut();
+    }
+  };
+
+  const confirmarCorte = async (e) => {
+    e.preventDefault();
+    setCortando(true);
+    setCorteError(null);
+    try {
+      // p_monto_final = lo que QUEDA para el próximo turno (se convierte en monto_inicial siguiente)
+      const { error } = await supabase.rpc('cerrar_sesion_caja', {
+        p_sesion_id:   sesion.id,
+        p_monto_final: montoDejarNum,
+      });
+      if (error) throw error;
+      clearSesion();
+      setShowCorte(false);
+      signOut();
+    } catch (err) {
+      setCorteError(err.message || 'Error al cerrar la sesión de caja.');
+      setCortando(false);
+    }
+  };
+
+  return (
+    <>
+      {/* ── Modal Corte de Caja ─────────────────────────────────── */}
+      {showCorte && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
+            <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-5">
+              <LogOut size={28} />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-gray-800 truncate">{perfil.nombre || 'Usuario'}</p>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                perfil.rol === 'admin'
-                  ? 'bg-purple-100 text-purple-700'
-                  : 'bg-blue-100 text-blue-700'
-              }`}>
-                {perfil.rol === 'admin' ? '⚡ Admin' : '💼 Cajero'}
-              </span>
-            </div>
+            <h2 className="text-2xl font-bold text-center text-gray-900 mb-1">Corte de Caja</h2>
+            <p className="text-sm text-gray-500 text-center mb-6">
+              Registra cuánto dinero dejas para el siguiente turno. Esto cerrará tu sesión.
+            </p>
+
+            {/* Resumen del turno */}
+            {sesion && (
+              <div className="bg-gray-50 rounded-xl p-4 mb-5 text-sm text-gray-600 space-y-1">
+                <p>📅 Apertura: <strong>{new Date(sesion.fecha_apertura).toLocaleString('es-MX')}</strong></p>
+                <p>💵 Monto inicial del turno: <strong>${parseFloat(sesion.monto_inicial || 0).toFixed(2)}</strong></p>
+                {efectivoCaja !== null && (
+                  <p className="text-amber-700 font-bold border-t border-gray-200 pt-2 mt-2">
+                    <Banknote size={14} className="inline mr-1" />
+                    Efectivo actual en caja: ${efectivoCaja.toFixed(2)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <form onSubmit={confirmarCorte} className="space-y-5">
+              {/* ¿Cuánto dejas para el siguiente turno? */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2 text-center">
+                  ¿Cuánto dejas para el siguiente turno? ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={montoDejar}
+                  onChange={(e) => setMontoDejar(e.target.value)}
+                  required
+                  autoFocus
+                  className="w-full px-4 py-4 text-4xl font-bold text-center text-gray-900 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-transparent outline-none"
+                  placeholder="0.00"
+                />
+              </div>
+
+              {/* Resumen del retiro — aparece cuando se escribe */}
+              {montoDejar !== '' && efectivoCaja !== null && (
+                <div className="rounded-xl overflow-hidden border border-gray-200">
+                  <div className="flex justify-between items-center px-5 py-3 bg-amber-50">
+                    <span className="text-sm text-amber-800 font-semibold">Queda en caja</span>
+                    <span className="text-lg font-black text-amber-700">${montoDejarNum.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center px-5 py-3 bg-red-50">
+                    <span className="text-sm text-red-700 font-semibold flex items-center gap-1.5">
+                      <ArrowDownCircle size={16} />
+                      Retiro de efectivo
+                    </span>
+                    <span className="text-2xl font-black text-red-600">${retiro.toFixed(2)}</span>
+                  </div>
+                  {montoDejarNum > efectivoCaja && (
+                    <div className="px-5 py-2 bg-orange-50 text-orange-700 text-xs font-semibold text-center">
+                      ⚠️ El monto a dejar supera el efectivo disponible
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {corteError && (
+                <div className="text-red-600 text-sm bg-red-50 p-3 rounded-lg text-center font-medium">
+                  ⚠️ {corteError}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCorte(false)}
+                  disabled={cortando}
+                  className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={cortando}
+                  className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {cortando
+                    ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <LogOut size={18} />}
+                  {cortando ? 'Cerrando...' : 'Registrar Corte'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Nav links */}
-      <nav className="flex-1 p-4 space-y-1">
-        {links.map(link => (
-          <NavLink
-            key={link.to}
-            to={link.to}
-            className={({ isActive }) =>
-              `flex items-center space-x-3 px-4 py-3.5 rounded-xl font-semibold transition-colors ${
-                isActive ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`
-            }
-          >
-            {link.icon}
-            <span>{link.label}</span>
-          </NavLink>
-        ))}
+      {/* ── Sidebar ─────────────────────────────────────────────── */}
+      <aside className="w-64 min-h-screen bg-white border-r border-gray-100 flex flex-col shadow-sm">
+        {/* Logo */}
+        <div className="px-6 py-6 border-b border-gray-100">
+          <h1 className="text-xl font-black text-blue-900 tracking-tight">Vistiendo Almas</h1>
+          <p className="text-xs text-gray-400 mt-0.5">Sistema de Punto de Venta</p>
+        </div>
 
-        {/* Admin section – solo admins */}
-        {perfil?.rol === 'admin' && (
-          <>
-            <div className="pt-3 pb-1 px-1">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Administración</p>
-            </div>
+        {/* Navegación */}
+        <nav className="flex-1 px-4 py-6 space-y-1">
+          {links.map(({ to, icon, label }) => (
             <NavLink
-              to="/admin/usuarios"
+              key={to} to={to}
               className={({ isActive }) =>
-                `flex items-center space-x-3 px-4 py-3.5 rounded-xl font-semibold transition-colors ${
-                  isActive ? 'bg-purple-50 text-purple-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                `flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 }`
               }
             >
-              <Shield size={22} />
-              <span>Usuarios</span>
+              {icon}
+              {label}
             </NavLink>
-          </>
-        )}
-      </nav>
+          ))}
 
-      {/* Logout */}
-      <div className="p-4 border-t border-gray-100">
-        <button
-          onClick={signOut}
-          className="flex items-center space-x-3 text-red-600 hover:bg-red-50 w-full px-4 py-3 rounded-xl font-semibold transition-colors"
-        >
-          <LogOut size={22} />
-          <span>Salir del Sistema</span>
-        </button>
-      </div>
-    </div>
+          {/* Administración — solo admin */}
+          {perfil?.rol === 'admin' && (
+            <>
+              <div className="pt-4 pb-1 px-4">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                  <Shield size={12} /> Administración
+                </p>
+              </div>
+              <NavLink to="/admin/usuarios"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
+                    isActive
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-200'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`
+                }
+              >
+                <User size={22} />
+                Usuarios
+              </NavLink>
+            </>
+          )}
+        </nav>
+
+        {/* Perfil + botón salir */}
+        <div className="px-4 py-4 border-t border-gray-100">
+          <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl mb-3">
+            <div className="w-8 h-8 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold text-sm">
+              {perfil?.nombre?.[0]?.toUpperCase() || '?'}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-800 truncate">{perfil?.nombre || 'Usuario'}</p>
+              <p className="text-xs text-gray-400 capitalize">{perfil?.rol || 'cajero'}</p>
+            </div>
+          </div>
+          <button
+            onClick={handleSalir}
+            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+              sesion
+                ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+            }`}
+          >
+            <LogOut size={16} />
+            {sesion ? 'Hacer Corte de Caja' : 'Cerrar Sesión'}
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

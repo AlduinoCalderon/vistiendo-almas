@@ -20,14 +20,20 @@ const useCartStore = create(
           }
           return { items: [{ ...product, cantidad: 1 }, ...state.items] };
         });
+        return true;
       },
 
+      /**
+       * Cambia la cantidad en +1/-1. Elimina el item si llega a 0.
+       * No bloquea por stock — se permite vender más del stock registrado.
+       */
       updateCantidad: (variante_id, delta) => {
         set((state) => ({
           items: state.items.flatMap(i => {
             if (i.variante_id !== variante_id) return [i];
             const newCant = i.cantidad + delta;
-            return newCant <= 0 ? [] : [{ ...i, cantidad: newCant }];
+            if (newCant <= 0) return [];
+            return [{ ...i, cantidad: newCant }];
           }),
         }));
       },
@@ -42,10 +48,14 @@ const useCartStore = create(
 
       getTotal: () =>
         get().items.reduce((sum, i) => sum + i.precio * i.cantidad, 0),
+
+      /** Stock disponible real = stock - cantidad ya en carrito */
+      stockDisponible: (variante_id, stockDB) => {
+        const item = get().items.find(i => i.variante_id === variante_id);
+        return stockDB - (item?.cantidad ?? 0);
+      },
     }),
-    {
-      name: 'va-carrito', // clave en localStorage
-    }
+    { name: 'va-carrito' }
   )
 );
 

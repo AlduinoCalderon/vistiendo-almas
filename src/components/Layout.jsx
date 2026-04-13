@@ -1,10 +1,40 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import useAuthStore from '../store/authStore';
+import useCajaStore from '../store/cajaStore';
+import { supabase } from '../lib/supabase';
+import { Banknote } from 'lucide-react';
 
 export default function Layout() {
   const { perfil } = useAuthStore();
+  const { sesion } = useCajaStore();
+  const [efectivoEnCaja, setEfectivoEnCaja] = useState(null);
+
+  const fetchEfectivo = useCallback(async () => {
+    if (!sesion) { setEfectivoEnCaja(null); return; }
+
+    const { data } = await supabase
+      .from('ventas')
+      .select('total')
+      .eq('sesion_id', sesion.id)
+      .eq('metodo_pago', 'efectivo');
+
+    const ventasEfectivo = (data || []).reduce((s, v) => s + parseFloat(v.total), 0);
+    setEfectivoEnCaja(parseFloat(sesion.monto_inicial || 0) + ventasEfectivo);
+  }, [sesion]);
+
+  // Fetch inicial y cada vez que cambia la sesión
+  useEffect(() => {
+    if (!sesion) { setEfectivoEnCaja(null); return; }
+    fetchEfectivo();
+  }, [sesion, fetchEfectivo]);
+
+  // Actualizar cuando Checkout lanza el evento 'venta-registrada'
+  useEffect(() => {
+    window.addEventListener('venta-registrada', fetchEfectivo);
+    return () => window.removeEventListener('venta-registrada', fetchEfectivo);
+  }, [fetchEfectivo]);
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
@@ -13,10 +43,22 @@ export default function Layout() {
         <div className="max-w-6xl mx-auto">
           {/* Header Superior */}
           <div className="flex justify-between items-center mb-8 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-            <div>
-              <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Usuario Activo</p>
-              <p className="text-lg font-bold text-gray-900">{perfil?.nombre || '—'}</p>
-            </div>
+            {sesion && efectivoEnCaja !== null ? (
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-100 text-amber-600 rounded-xl">
+                  <Banknote size={22} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Dinero en Caja</p>
+                  <p className="text-xl font-black text-amber-700">${efectivoEnCaja.toFixed(2)}</p>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Usuario Activo</p>
+                <p className="text-lg font-bold text-gray-900">{perfil?.nombre || '—'}</p>
+              </div>
+            )}
             <span className={`text-xs font-bold px-3 py-1 rounded-full ${
               perfil?.rol === 'admin'
                 ? 'bg-purple-100 text-purple-700'
