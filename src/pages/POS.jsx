@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import useCartStore from '../store/cartStore';
 import useAuthStore from '../store/authStore';
+import useCajaStore from '../store/cajaStore';
 import CajaSession from '../components/CajaSession';
 import Scanner from '../components/Scanner';
 import Checkout from '../components/Checkout';
@@ -10,19 +11,14 @@ import { Trash2, Plus, Minus } from 'lucide-react';
 export default function POS() {
   const { user } = useAuthStore();
   const { items, addItem, updateCantidad, removeItem } = useCartStore();
-  const [session, setSession] = useState(null);
+  const { sesion, setSesion } = useCajaStore();
 
-  // ----------------------------------------------------------------
-  // Escáner de código de barras mediante listener global de teclado.
-  // Los scanners HID envían caracteres rápidamente y terminan con Enter.
-  // Acumulamos solo si el foco NO está en un input/textarea para no
-  // interferir con tipeo normal del usuario.
-  // ----------------------------------------------------------------
+  // ── Escáner HID ───────────────────────────────────────────────────
   const barcodeBufferRef = useRef('');
   const barcodeTimerRef = useRef(null);
 
   const handleBarcodeScan = useCallback(async (barcode) => {
-    if (!barcode || !session) return;
+    if (!barcode || !sesion) return;
     try {
       const { data } = await supabase
         .from('variantes')
@@ -39,15 +35,12 @@ export default function POS() {
           precio: data.precio,
         });
       }
-    } catch (e) {
-      // Ignorar errores silenciosamente – el escáner no debe bloquear la UI
-    }
-  }, [session, addItem]);
+    } catch (e) { /* escáner no debe bloquear UI */ }
+  }, [sesion, addItem]);
 
   useEffect(() => {
     const onKeyDown = (e) => {
       const tag = document.activeElement?.tagName?.toLowerCase();
-      // Si el foco está en un campo de texto, no interceptar
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
 
       if (e.key === 'Enter') {
@@ -57,39 +50,34 @@ export default function POS() {
         if (code.length >= 3) handleBarcodeScan(code);
         return;
       }
-
       if (e.key.length === 1) {
         barcodeBufferRef.current += e.key;
         clearTimeout(barcodeTimerRef.current);
-        // Si no llega Enter en 80ms asumimos que no es escáner
-        barcodeTimerRef.current = setTimeout(() => {
-          barcodeBufferRef.current = '';
-        }, 80);
+        barcodeTimerRef.current = setTimeout(() => { barcodeBufferRef.current = ''; }, 80);
       }
     };
-
     document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      clearTimeout(barcodeTimerRef.current);
-    };
+    return () => { document.removeEventListener('keydown', onKeyDown); clearTimeout(barcodeTimerRef.current); };
   }, [handleBarcodeScan]);
 
-  if (!session) {
-    return <CajaSession user={user} onSessionActive={setSession} />;
+  // Si no hay sesión activa → pantalla de apertura
+  if (!sesion) {
+    return <CajaSession user={user} onSessionActive={setSesion} />;
   }
+
+  const fechaApertura = new Date(sesion.fecha_apertura);
+  const fechaStr = fechaApertura.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const horaStr = fechaApertura.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
   return (
     <div className="space-y-4">
-      {/* Búsqueda manual / escáner visual */}
       <Scanner onProductScanned={addItem} />
 
-      {/* Carrito */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
           <div>
             <h2 className="text-lg font-bold text-gray-800">
-              Caja abierta — {new Date(session.fecha_apertura).toLocaleDateString('es-MX', { day:'2-digit', month:'2-digit', year:'numeric' })} {new Date(session.fecha_apertura).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' })}
+              Caja abierta — {fechaStr} {horaStr}
             </h2>
             <p className="text-xs text-gray-400 mt-0.5">El carrito persiste aunque recargues la página 💾</p>
           </div>
@@ -155,11 +143,7 @@ export default function POS() {
         )}
       </div>
 
-      <Checkout
-        cart={items}
-        cajeroId={user.id}
-        sesionId={session.id}
-      />
+      <Checkout cart={items} cajeroId={user.id} sesionId={sesion.id} />
     </div>
   );
 }

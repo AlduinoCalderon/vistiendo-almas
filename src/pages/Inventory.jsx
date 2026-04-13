@@ -276,10 +276,10 @@ export default function Inventory() {
 
   const fetchProductos = async () => {
     setLoading(true);
-    // Cargamos TODOS (activos e inactivos) para que el admin pueda reactivarlos
+    // Incluir stock total y rango de precios de variantes activas
     const { data } = await supabase
       .from('productos')
-      .select('*, variantes(count)')
+      .select('*, variantes(stock, precio, activo)')
       .order('nombre');
     if (data) setProductos(data);
     setLoading(false);
@@ -341,8 +341,8 @@ export default function Inventory() {
             <tr>
               <th className="px-6 py-4">Nombre</th>
               <th className="px-6 py-4">Región</th>
-              <th className="px-6 py-4 text-center">Estado</th>
-              <th className="px-6 py-4 text-center">SKUs / Variantes</th>
+              <th className="px-6 py-4 text-center">Inventario</th>
+              <th className="px-6 py-4 text-center">Precio</th>
               <th className="px-6 py-4 text-center">Acciones</th>
             </tr>
           </thead>
@@ -358,19 +358,27 @@ export default function Inventory() {
                   <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-bold">{p.categoria || '—'}</span>
                 </td>
                 <td className="px-6 py-4 text-center">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                    p.activo !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
-                  }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${p.activo !== false ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                    {p.activo !== false ? 'Activo' : 'Inactivo'}
-                  </span>
+                  {(() => {
+                    const varsActivas = (p.variantes || []).filter(v => v.activo !== false);
+                    const totalStock = varsActivas.reduce((s, v) => s + (v.stock || 0), 0);
+                    const color = totalStock <= 0 ? 'text-red-600 bg-red-50' : totalStock <= 10 ? 'text-amber-600 bg-amber-50' : 'text-emerald-700 bg-emerald-50';
+                    return <span className={`inline-block px-3 py-1 rounded-full font-bold text-sm ${color}`}>{totalStock} pzas</span>;
+                  })()}
                 </td>
-                <td className="px-6 py-4 text-center font-bold text-gray-700">{p.variantes?.[0]?.count ?? 0} SKUs</td>
+                <td className="px-6 py-4 text-center">
+                  {(() => {
+                    const varsActivas = (p.variantes || []).filter(v => v.activo !== false);
+                    if (varsActivas.length === 0) return <span className="text-gray-400">—</span>;
+                    const precios = [...new Set(varsActivas.map(v => parseFloat(v.precio)))];
+                    const min = Math.min(...precios); const max = Math.max(...precios);
+                    return <span className="font-bold text-blue-700">{min === max ? `$${min.toFixed(2)}` : `$${min.toFixed(2)} – $${max.toFixed(2)}`}</span>;
+                  })()}
+                </td>
                 <td className="px-6 py-4 text-center">
                   <div className="flex items-center justify-center gap-2">
                     {p.activo !== false && (
                       <button onClick={() => setSelectedProduct(p)} className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold px-3 py-1.5 rounded-lg text-sm transition-colors">
-                        Gestionar SKUs
+                        Ver / Editar
                       </button>
                     )}
                     {p.activo !== false ? (
