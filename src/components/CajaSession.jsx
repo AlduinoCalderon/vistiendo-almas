@@ -5,6 +5,7 @@ import useCajaStore from '../store/cajaStore';
 export default function CajaSession({ user, onSessionActive }) {
   const [loading, setLoading] = useState(true);
   const [montoInicial, setMontoInicial] = useState('0');
+  const [sugeridoInicial, setSugeridoInicial] = useState(null); // del turno anterior
   const [error, setError] = useState(null);
   const { sesion, setSesion, loadSesion } = useCajaStore();
 
@@ -13,16 +14,47 @@ export default function CajaSession({ user, onSessionActive }) {
   }, []);
 
   const verificarSesion = async () => {
-    // Primero revisar el store (localStorage) — evita query innecesaria en F5
     if (sesion && sesion.cajero_id === user.id) {
       onSessionActive(sesion);
       setLoading(false);
       return;
     }
-    // Si no hay nada en store, consultar la BD
     const data = await loadSesion(user.id);
-    if (data) onSessionActive(data);
+    if (data) { onSessionActive(data); setLoading(false); return; }
+
+    // No hay sesión activa — calcular saldo sugerido del último corte
+    await calcularSaldoAnterior();
     setLoading(false);
+  };
+
+  /**
+   * Calcula cuánto quedó en caja al final del último turno:
+   * = monto_inicial_anterior + ventas_efectivo_anterior - retiro_anterior
+   */
+  const calcularSaldoAnterior = async () => {
+    const { data: ultima } = await supabase
+      .from('sesiones_caja')
+      .select('id, monto_inicial, monto_final')
+      .not('fecha_cierre', 'is', null)
+      .order('fecha_cierre', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!ultima) return; // primer turno del sistema
+
+    const { data: vef } = await supabase
+      .from('ventas')
+      .select('total')
+      .eq('sesion_id', ultima.id)
+      .eq('metodo_pago', 'efectivo');
+
+    const totalEf = (vef || []).reduce((s, v) => s + parseFloat(v.total), 0);
+    const efectivoCajaAnterior = parseFloat(ultima.monto_inicial || 0) + totalEf;
+    const retiroAnterior       = parseFloat(ultima.monto_final || 0);
+    const quedo                = Math.max(0, efectivoCajaAnterior - retiroAnterior);
+
+    setSugeridoInicial(quedo);
+    setMontoInicial(quedo.toFixed(2));
   };
 
   const abrirCaja = async (e) => {
@@ -72,7 +104,7 @@ export default function CajaSession({ user, onSessionActive }) {
         <form onSubmit={abrirCaja} className="space-y-6">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2 text-center">
-              Monto Inicial en Caja ($)
+              Dinero en caja al iniciar ($)
             </label>
             <input
               type="number"
@@ -84,6 +116,11 @@ export default function CajaSession({ user, onSessionActive }) {
               className="w-full px-4 py-4 text-4xl font-bold text-center text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
               placeholder="0.00"
             />
+            {sugeridoInicial !== null && (
+              <p className="text-center text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+                💡 Quedó <strong>${sugeridoInicial.toFixed(2)}</strong> del turno anterior — puedes modificarlo si es diferente
+              </p>
+            )}
           </div>
           {error && <div className="text-red-500 text-sm font-semibold text-center bg-red-50 p-3 rounded-lg">{error}</div>}
           <button type="submit" disabled={loading}

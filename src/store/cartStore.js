@@ -6,10 +6,20 @@ const useCartStore = create(
     (set, get) => ({
       items: [],
 
+      /**
+       * Agrega un item al carrito.
+       * Requiere { variante_id, nombre, talla, color, precio, stock }
+       * HARD LIMIT: no agrega más del stock disponible. Retorna false si no pudo.
+       */
       addItem: (product) => {
+        let added = false;
         set((state) => {
           const existing = state.items.find(i => i.variante_id === product.variante_id);
+          const stockMax  = product.stock ?? existing?.stock ?? Infinity;
+
           if (existing) {
+            if (existing.cantidad >= stockMax) return state; // límite duro
+            added = true;
             return {
               items: state.items.map(i =>
                 i.variante_id === product.variante_id
@@ -18,14 +28,17 @@ const useCartStore = create(
               ),
             };
           }
+
+          if (stockMax <= 0) return state; // sin stock: bloqueado
+          added = true;
           return { items: [{ ...product, cantidad: 1 }, ...state.items] };
         });
-        return true;
+        return added;
       },
 
       /**
-       * Cambia la cantidad en +1/-1. Elimina el item si llega a 0.
-       * No bloquea por stock — se permite vender más del stock registrado.
+       * Cambia la cantidad en +1 / -1.
+       * No supera el stock almacenado — elimina el item si llega a 0.
        */
       updateCantidad: (variante_id, delta) => {
         set((state) => ({
@@ -33,6 +46,7 @@ const useCartStore = create(
             if (i.variante_id !== variante_id) return [i];
             const newCant = i.cantidad + delta;
             if (newCant <= 0) return [];
+            if (newCant > (i.stock ?? Infinity)) return [i]; // tope en stock
             return [{ ...i, cantidad: newCant }];
           }),
         }));
@@ -49,7 +63,7 @@ const useCartStore = create(
       getTotal: () =>
         get().items.reduce((sum, i) => sum + i.precio * i.cantidad, 0),
 
-      /** Stock disponible real = stock - cantidad ya en carrito */
+      /** Unidades aún disponibles para agregar (stock - ya en carrito) */
       stockDisponible: (variante_id, stockDB) => {
         const item = get().items.find(i => i.variante_id === variante_id);
         return stockDB - (item?.cantidad ?? 0);

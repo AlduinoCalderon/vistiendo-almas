@@ -80,8 +80,8 @@ export default function Reports() {
   const totalEfectivo    = ventas.filter(v => v.metodo_pago === 'efectivo').reduce((s, v) => s + parseFloat(v.total), 0);
   const totalDigital     = ventas.filter(v => v.metodo_pago !== 'efectivo').reduce((s, v) => s + parseFloat(v.total), 0);
 
-  // Total dejado para siguientes turnos
-  const totalDejado = cierres.reduce((s, c) => s + parseFloat(c.monto_final || 0), 0);
+  // monto_final ahora = retiro (cuánto se sacó del cajón)
+  const totalRetirado = cierres.reduce((s, c) => s + parseFloat(c.monto_final || 0), 0);
 
   const filtroLabel = filtro === 'hoy' ? 'Hoy'
     : filtro === 'semana' ? 'Últimos 7 días'
@@ -192,8 +192,8 @@ export default function Reports() {
                 <ArrowDownCircle size={22} />
               </div>
               <div>
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Dejado en caja (Cortes)</p>
-                <p className="text-2xl font-black text-red-600">${totalDejado.toFixed(2)}</p>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Total Retirado (Cortes)</p>
+                <p className="text-2xl font-black text-red-600">${totalRetirado.toFixed(2)}</p>
                 <p className="text-xs text-gray-400">{cierres.length} corte{cierres.length !== 1 ? 's' : ''} registrado{cierres.length !== 1 ? 's' : ''}</p>
               </div>
             </div>
@@ -214,7 +214,7 @@ export default function Reports() {
                       <th className="p-3 font-semibold">Apertura</th>
                       <th className="p-3 font-semibold">Cierre</th>
                       <th className="p-3 font-semibold text-right">Inicial</th>
-                      <th className="p-3 font-semibold text-right">Dejó para sig. turno</th>
+                      <th className="p-3 font-semibold text-right">Retiro</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">

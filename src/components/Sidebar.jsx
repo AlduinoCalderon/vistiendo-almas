@@ -8,11 +8,11 @@ import { supabase } from '../lib/supabase';
 export default function Sidebar() {
   const { perfil, signOut } = useAuthStore();
   const { sesion, clearSesion } = useCajaStore();
-  const [showCorte, setShowCorte]   = useState(false);
-  const [montoDejar, setMontoDejar] = useState('');    // cuánto queda para el siguiente turno
-  const [cortando, setCortando]     = useState(false);
-  const [corteError, setCorteError] = useState(null);
-  const [efectivoCaja, setEfectivoCaja] = useState(null); // efectivo total en caja ahora
+  const [showCorte, setShowCorte]       = useState(false);
+  const [montoRetiro, setMontoRetiro]   = useState('');  // cuánto se RETIRA físicamente
+  const [cortando, setCortando]         = useState(false);
+  const [corteError, setCorteError]     = useState(null);
+  const [efectivoCaja, setEfectivoCaja] = useState(null);
 
   const links = [
     { to: "/pos",       icon: <ShoppingCart size={22} />, label: "Caja POS"   },
@@ -20,7 +20,7 @@ export default function Sidebar() {
     { to: "/reports",   icon: <BarChart3 size={22} />,    label: "Reportes"   },
   ];
 
-  // Calcular efectivo en caja cuando se abre el modal
+  // Calcular efectivo en caja al abrir el modal
   useEffect(() => {
     if (!showCorte || !sesion) return;
     const fetchEfectivo = async () => {
@@ -35,13 +35,15 @@ export default function Sidebar() {
     fetchEfectivo();
   }, [showCorte, sesion]);
 
-  const montoDejarNum = parseFloat(montoDejar) || 0;
-  // Retiro = todo el efectivo que hay - lo que se deja para el siguiente turno
-  const retiro = efectivoCaja !== null ? Math.max(0, efectivoCaja - montoDejarNum) : null;
+  const montoRetiroNum = parseFloat(montoRetiro) || 0;
+  // Lo que queda para el siguiente turno = efectivo actual - retiro
+  const quedaParaSiguiente = efectivoCaja !== null
+    ? Math.max(0, efectivoCaja - montoRetiroNum)
+    : null;
 
   const handleSalir = () => {
     if (sesion) {
-      setMontoDejar('');
+      setMontoRetiro('');
       setCorteError(null);
       setShowCorte(true);
     } else {
@@ -54,10 +56,11 @@ export default function Sidebar() {
     setCortando(true);
     setCorteError(null);
     try {
-      // p_monto_final = lo que QUEDA para el próximo turno (se convierte en monto_inicial siguiente)
+      // p_monto_final = lo que se RETIRA (sale del cajón)
+      // Lo que "queda para el siguiente turno" se computa en CajaSession al abrir
       const { error } = await supabase.rpc('cerrar_sesion_caja', {
         p_sesion_id:   sesion.id,
-        p_monto_final: montoDejarNum,
+        p_monto_final: montoRetiroNum,
       });
       if (error) throw error;
       clearSesion();
@@ -80,35 +83,34 @@ export default function Sidebar() {
             </div>
             <h2 className="text-2xl font-bold text-center text-gray-900 mb-1">Corte de Caja</h2>
             <p className="text-sm text-gray-500 text-center mb-6">
-              Registra cuánto dinero dejas para el siguiente turno. Esto cerrará tu sesión.
+              Indica cuánto efectivo retiras del cajón. Esto cerrará tu sesión.
             </p>
 
             {/* Resumen del turno */}
             {sesion && (
               <div className="bg-gray-50 rounded-xl p-4 mb-5 text-sm text-gray-600 space-y-1">
                 <p>📅 Apertura: <strong>{new Date(sesion.fecha_apertura).toLocaleString('es-MX')}</strong></p>
-                <p>💵 Monto inicial del turno: <strong>${parseFloat(sesion.monto_inicial || 0).toFixed(2)}</strong></p>
+                <p>💵 Efectivo inicial: <strong>${parseFloat(sesion.monto_inicial || 0).toFixed(2)}</strong></p>
                 {efectivoCaja !== null && (
                   <p className="text-amber-700 font-bold border-t border-gray-200 pt-2 mt-2">
                     <Banknote size={14} className="inline mr-1" />
-                    Efectivo actual en caja: ${efectivoCaja.toFixed(2)}
+                    Total efectivo en caja ahorita: <span className="text-xl">${efectivoCaja.toFixed(2)}</span>
                   </p>
                 )}
               </div>
             )}
 
             <form onSubmit={confirmarCorte} className="space-y-5">
-              {/* ¿Cuánto dejas para el siguiente turno? */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2 text-center">
-                  ¿Cuánto dejas para el siguiente turno? ($)
+                  ¿Cuánto retiras de la caja? ($)
                 </label>
                 <input
                   type="number"
                   step="0.01"
                   min="0"
-                  value={montoDejar}
-                  onChange={(e) => setMontoDejar(e.target.value)}
+                  value={montoRetiro}
+                  onChange={(e) => setMontoRetiro(e.target.value)}
                   required
                   autoFocus
                   className="w-full px-4 py-4 text-4xl font-bold text-center text-gray-900 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-transparent outline-none"
@@ -116,23 +118,23 @@ export default function Sidebar() {
                 />
               </div>
 
-              {/* Resumen del retiro — aparece cuando se escribe */}
-              {montoDejar !== '' && efectivoCaja !== null && (
+              {/* Desglose: retiro y lo que queda */}
+              {montoRetiro !== '' && efectivoCaja !== null && (
                 <div className="rounded-xl overflow-hidden border border-gray-200">
-                  <div className="flex justify-between items-center px-5 py-3 bg-amber-50">
-                    <span className="text-sm text-amber-800 font-semibold">Queda en caja</span>
-                    <span className="text-lg font-black text-amber-700">${montoDejarNum.toFixed(2)}</span>
-                  </div>
                   <div className="flex justify-between items-center px-5 py-3 bg-red-50">
                     <span className="text-sm text-red-700 font-semibold flex items-center gap-1.5">
                       <ArrowDownCircle size={16} />
                       Retiro de efectivo
                     </span>
-                    <span className="text-2xl font-black text-red-600">${retiro.toFixed(2)}</span>
+                    <span className="text-2xl font-black text-red-600">${montoRetiroNum.toFixed(2)}</span>
                   </div>
-                  {montoDejarNum > efectivoCaja && (
+                  <div className="flex justify-between items-center px-5 py-3 bg-amber-50">
+                    <span className="text-sm text-amber-800 font-semibold">Queda para siguiente turno</span>
+                    <span className="text-lg font-black text-amber-700">${quedaParaSiguiente.toFixed(2)}</span>
+                  </div>
+                  {montoRetiroNum > efectivoCaja && (
                     <div className="px-5 py-2 bg-orange-50 text-orange-700 text-xs font-semibold text-center">
-                      ⚠️ El monto a dejar supera el efectivo disponible
+                      ⚠️ No puedes retirar más de lo que hay en caja
                     </div>
                   )}
                 </div>
@@ -145,19 +147,12 @@ export default function Sidebar() {
               )}
 
               <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCorte(false)}
-                  disabled={cortando}
-                  className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition-colors"
-                >
+                <button type="button" onClick={() => setShowCorte(false)} disabled={cortando}
+                  className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition-colors">
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  disabled={cortando}
-                  className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                >
+                <button type="submit" disabled={cortando || montoRetiroNum > (efectivoCaja ?? Infinity)}
+                  className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                   {cortando
                     ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     : <LogOut size={18} />}
@@ -171,31 +166,24 @@ export default function Sidebar() {
 
       {/* ── Sidebar ─────────────────────────────────────────────── */}
       <aside className="w-64 min-h-screen bg-white border-r border-gray-100 flex flex-col shadow-sm">
-        {/* Logo */}
         <div className="px-6 py-6 border-b border-gray-100">
           <h1 className="text-xl font-black text-blue-900 tracking-tight">Vistiendo Almas</h1>
           <p className="text-xs text-gray-400 mt-0.5">Sistema de Punto de Venta</p>
         </div>
 
-        {/* Navegación */}
         <nav className="flex-1 px-4 py-6 space-y-1">
           {links.map(({ to, icon, label }) => (
-            <NavLink
-              key={to} to={to}
+            <NavLink key={to} to={to}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
-                  isActive
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  isActive ? 'bg-blue-600 text-white shadow-md shadow-blue-200' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 }`
               }
             >
-              {icon}
-              {label}
+              {icon}{label}
             </NavLink>
           ))}
 
-          {/* Administración — solo admin */}
           {perfil?.rol === 'admin' && (
             <>
               <div className="pt-4 pb-1 px-4">
@@ -206,20 +194,16 @@ export default function Sidebar() {
               <NavLink to="/admin/usuarios"
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
-                    isActive
-                      ? 'bg-purple-600 text-white shadow-md shadow-purple-200'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    isActive ? 'bg-purple-600 text-white shadow-md shadow-purple-200' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   }`
                 }
               >
-                <User size={22} />
-                Usuarios
+                <User size={22} />Usuarios
               </NavLink>
             </>
           )}
         </nav>
 
-        {/* Perfil + botón salir */}
         <div className="px-4 py-4 border-t border-gray-100">
           <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl mb-3">
             <div className="w-8 h-8 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold text-sm">
@@ -230,12 +214,9 @@ export default function Sidebar() {
               <p className="text-xs text-gray-400 capitalize">{perfil?.rol || 'cajero'}</p>
             </div>
           </div>
-          <button
-            onClick={handleSalir}
+          <button onClick={handleSalir}
             className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${
-              sesion
-                ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              sesion ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
             }`}
           >
             <LogOut size={16} />
