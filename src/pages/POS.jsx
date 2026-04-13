@@ -17,7 +17,8 @@ export default function POS() {
   const barcodeBufferRef = useRef('');
   const barcodeTimerRef = useRef(null);
 
-  const [sinStockMsg, setSinStockMsg] = useState(null);
+  const [sinStockMsg, setSinStockMsg]       = useState(null);
+  const [unknownBarcode, setUnknownBarcode] = useState(null); // barcode HID no encontrado
 
   const handleBarcodeScan = useCallback(async (barcode) => {
     if (!barcode || !sesion) return;
@@ -28,21 +29,27 @@ export default function POS() {
         .eq('codigo_barras', barcode.trim())
         .maybeSingle();
 
-      if (!data) return;
+      // No encontrado → delegar Alta Rápida al Scanner
+      if (!data) {
+        setUnknownBarcode(barcode.trim());
+        return;
+      }
 
+      // Sin stock → el Scanner lo maneja inline (sinStockItem)
       if (data.stock <= 0) {
-        setSinStockMsg(`Sin stock: ${data.productos.nombre} (${data.talla} / ${data.color})`);
-        setTimeout(() => setSinStockMsg(null), 3000);
+        setUnknownBarcode(null);
+        setSinStockMsg(`Sin stock: ${data.productos.nombre}. Búscalo y registra existencias.`);
+        setTimeout(() => setSinStockMsg(null), 3500);
         return;
       }
 
       const added = addItem({
         variante_id: data.id,
         nombre: data.productos.nombre,
-        talla: data.talla,
-        color: data.color,
+        talla:  data.talla,
+        color:  data.color,
         precio: data.precio,
-        stock: data.stock,
+        stock:  data.stock,
       });
 
       if (!added) {
@@ -85,14 +92,18 @@ export default function POS() {
 
   return (
     <div className="space-y-4">
-      {/* Toast HID sin stock */}
+      {/* Toast HID sin stock / máximo */}
       {sinStockMsg && (
-        <div className="fixed top-6 right-6 z-50 bg-amber-50 border border-amber-300 rounded-2xl shadow-lg px-5 py-4 text-amber-800 font-semibold text-sm max-w-xs">
+        <div className="fixed top-6 right-6 z-50 bg-amber-50 border border-amber-300 rounded-2xl shadow-lg px-5 py-4 text-amber-800 font-semibold text-sm max-w-xs animate-slide-in">
           ⚠️ {sinStockMsg}
         </div>
       )}
 
-      <Scanner onProductScanned={addItem} />
+      <Scanner
+        onProductScanned={addItem}
+        unknownBarcode={unknownBarcode}
+        onUnknownBarcodeHandled={() => setUnknownBarcode(null)}
+      />
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
