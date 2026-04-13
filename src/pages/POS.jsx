@@ -17,6 +17,8 @@ export default function POS() {
   const barcodeBufferRef = useRef('');
   const barcodeTimerRef = useRef(null);
 
+  const [sinStockMsg, setSinStockMsg] = useState(null);
+
   const handleBarcodeScan = useCallback(async (barcode) => {
     if (!barcode || !sesion) return;
     try {
@@ -26,14 +28,26 @@ export default function POS() {
         .eq('codigo_barras', barcode.trim())
         .maybeSingle();
 
-      if (data && data.stock > 0) {
-        addItem({
-          variante_id: data.id,
-          nombre: data.productos.nombre,
-          talla: data.talla,
-          color: data.color,
-          precio: data.precio,
-        });
+      if (!data) return;
+
+      if (data.stock <= 0) {
+        setSinStockMsg(`Sin stock: ${data.productos.nombre} (${data.talla} / ${data.color})`);
+        setTimeout(() => setSinStockMsg(null), 3000);
+        return;
+      }
+
+      const added = addItem({
+        variante_id: data.id,
+        nombre: data.productos.nombre,
+        talla: data.talla,
+        color: data.color,
+        precio: data.precio,
+        stock: data.stock,
+      });
+
+      if (!added) {
+        setSinStockMsg(`Máximo alcanzado: ${data.productos.nombre} (stock: ${data.stock})`);
+        setTimeout(() => setSinStockMsg(null), 3000);
       }
     } catch (e) { /* escáner no debe bloquear UI */ }
   }, [sesion, addItem]);
@@ -71,6 +85,13 @@ export default function POS() {
 
   return (
     <div className="space-y-4">
+      {/* Toast HID sin stock */}
+      {sinStockMsg && (
+        <div className="fixed top-6 right-6 z-50 bg-amber-50 border border-amber-300 rounded-2xl shadow-lg px-5 py-4 text-amber-800 font-semibold text-sm max-w-xs">
+          ⚠️ {sinStockMsg}
+        </div>
+      )}
+
       <Scanner onProductScanned={addItem} />
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
